@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir huggingface-hub transformers
 COPY download_model.py /app/download_model.py
 
 # Download the model during build time
-RUN python /app/download_model.py
+RUN python3 /app/download_model.py
 
 # Create startup script
 RUN echo '#!/bin/bash\n\
