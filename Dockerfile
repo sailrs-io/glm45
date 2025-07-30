@@ -1,5 +1,5 @@
 # Multi-stage build for optimized final image
-FROM vllm/vllm-openai:v0.10.0 as base
+FROM vllm/vllm-openai:v0.10.0 AS base
 
 # Set environment variables for model configuration
 ARG MODEL_NAME=zai-org/GLM-4.5-FP8
@@ -15,35 +15,20 @@ RUN mkdir -p /app/models
 RUN pip install --no-cache-dir huggingface-hub transformers
 
 # Download the model during build time
-RUN python -c "
-import os
-from huggingface_hub import snapshot_download
-from transformers import AutoTokenizer, AutoModelForCausalLM
-
-model_name = os.environ['MODEL_NAME']
-cache_dir = os.environ['HF_HOME']
-
-print(f'Downloading model: {model_name}')
-print(f'Cache directory: {cache_dir}')
-
-# Download model files
-snapshot_download(
-    repo_id=model_name,
-    cache_dir=cache_dir,
-    local_dir=f'{cache_dir}/{model_name}',
-    local_dir_use_symlinks=False
-)
-
-# Verify model can be loaded
-try:
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_name,
-        cache_dir=cache_dir,
-        trust_remote_code=True
-    )
-    print(f'Successfully downloaded and verified model: {model_name}')
-except Exception as e:
-    print(f'Warning: Could not verify model loading: {e}')
+RUN python -c "\
+import os; \
+from huggingface_hub import snapshot_download; \
+from transformers import AutoTokenizer, AutoModelForCausalLM; \
+model_name = os.environ['MODEL_NAME']; \
+cache_dir = os.environ['HF_HOME']; \
+print(f'Downloading model: {model_name}'); \
+print(f'Cache directory: {cache_dir}'); \
+snapshot_download(repo_id=model_name, cache_dir=cache_dir, local_dir=f'{cache_dir}/{model_name}', local_dir_use_symlinks=False); \
+try: \
+    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir, trust_remote_code=True); \
+    print(f'Successfully downloaded and verified model: {model_name}'); \
+except Exception as e: \
+    print(f'Warning: Could not verify model loading: {e}'); \
 "
 
 # Create startup script
@@ -63,7 +48,7 @@ exec python -m vllm.entrypoints.openai.api_server \\\n\
     "$@"' > /app/start.sh && chmod +x /app/start.sh
 
 # Production stage - copy only necessary files
-FROM vllm/vllm-openai:v0.10.0 as production
+FROM vllm/vllm-openai:v0.10.0 AS production
 
 # Set environment variables
 ARG MODEL_NAME=zai-org/GLM-4.5-FP8
