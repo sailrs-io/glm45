@@ -25,7 +25,11 @@ env:
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    # Use self-hosted runner with specific labels
+    runs-on: self-hosted
+    # Alternative: Use specific runner labels if you have multiple runners
+    # runs-on: [self-hosted, linux, x64, docker]
+    
     permissions:
       contents: read
       packages: write
@@ -87,9 +91,16 @@ jobs:
           labels: ${{ steps.docker_meta.outputs.labels }}
           build-args: |
             MODEL_NAME=${{ steps.meta.outputs.model_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Use local cache for self-hosted runners instead of GitHub Actions cache
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
           platforms: linux/amd64
+
+      # Cache cleanup for self-hosted runners
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - name: Output image details
         run: |
