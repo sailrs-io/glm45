@@ -14,34 +14,11 @@ RUN mkdir -p /app/models
 # Install Python dependencies for model downloading
 RUN pip install --no-cache-dir huggingface-hub transformers
 
+# Copy the model download script
+COPY download_model.py /app/download_model.py
+
 # Download the model during build time
-RUN python -c "
-import os
-from huggingface_hub import snapshot_download
-from transformers import AutoTokenizer, AutoModelForCausalLM
-
-model_name = os.environ['MODEL_NAME']
-cache_dir = os.environ['HF_HOME']
-print(f'Downloading model: {model_name}')
-print(f'Cache directory: {cache_dir}')
-
-snapshot_download(
-    repo_id=model_name, 
-    cache_dir=cache_dir, 
-    local_dir=f'{cache_dir}/{model_name}', 
-    local_dir_use_symlinks=False
-)
-
-try:
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_name, 
-        cache_dir=cache_dir, 
-        trust_remote_code=True
-    )
-    print(f'Successfully downloaded and verified model: {model_name}')
-except Exception as e:
-    print(f'Warning: Could not verify model loading: {e}')
-"
+RUN python /app/download_model.py
 
 # Create startup script
 RUN echo '#!/bin/bash\n\
