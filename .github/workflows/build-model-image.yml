@@ -1,0 +1,162 @@
+name: Build and Push Model Container
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: 'Model name (e.g., zai-org/GLM-4.5-FP8)'
+        required: true
+        default: 'zai-org/GLM-4.5-FP8'
+        type: string
+      image_tag:
+        description: 'Additional tag for the image (optional)'
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/build-model-image.yml'
+
+env:
+  REGISTRY: ghcr.io
+  BASE_IMAGE_NAME: ${{ github.repository }}/vllm-model
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set model name and image name
+        id: meta
+        run: |
+          # Use input model name if provided, otherwise default
+          MODEL_NAME="${{ inputs.model_name || 'zai-org/GLM-4.5-FP8' }}"
+          echo "model_name=${MODEL_NAME}" >> $GITHUB_OUTPUT
+          
+          # Create sanitized image name from model name
+          # Replace / with - and convert to lowercase
+          SANITIZED_MODEL=$(echo "${MODEL_NAME}" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.BASE_IMAGE_NAME }}-${SANITIZED_MODEL}"
+          echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "sanitized_model=${SANITIZED_MODEL}" >> $GITHUB_OUTPUT
+          
+          # Set tags
+          TAGS="${IMAGE_NAME}:latest,${IMAGE_NAME}:${{ github.sha }}"
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            TAGS="${TAGS},${IMAGE_NAME}:${{ inputs.image_tag }}"
+          fi
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata
+        id: docker_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.meta.outputs.image_name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          build-args: |
+            MODEL_NAME=${{ steps.meta.outputs.model_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Output image details
+        run: |
+          echo "🚀 Successfully built and pushed container image!"
+          echo "📦 Model: ${{ steps.meta.outputs.model_name }}"
+          echo "🏷️  Image: ${{ steps.meta.outputs.image_name }}"
+          echo "🔖 Tags:"
+          echo "${{ steps.docker_meta.outputs.tags }}" | tr ',' '\n' | sed 's/^/  - /'
+          
+      - name: Create deployment example
+        run: |
+          cat << EOF > deployment-example.md
+          # Deployment Example
+          
+          ## Model Information
+          - **Model**: ${{ steps.meta.outputs.model_name }}
+          - **Image**: ${{ steps.meta.outputs.image_name }}:latest
+          
+          ## Docker Run
+          \`\`\`bash
+          docker run -d \\
+            --name vllm-${{ steps.meta.outputs.sanitized_model }} \\
+            -p 8000:8000 \\
+            --gpus all \\
+            ${{ steps.meta.outputs.image_name }}:latest
+          \`\`\`
+          
+          ## Docker Compose
+          \`\`\`yaml
+          version: '3.8'
+          services:
+            vllm-model:
+              image: ${{ steps.meta.outputs.image_name }}:latest
+              ports:
+                - "8000:8000"
+              deploy:
+                resources:
+                  reservations:
+                    devices:
+                      - driver: nvidia
+                        count: all
+                        capabilities: [gpu]
+              environment:
+                - MODEL_NAME=${{ steps.meta.outputs.model_name }}
+          \`\`\`
+          
+          ## Testing the API
+          \`\`\`bash
+          # Health check
+          curl http://localhost:8000/health
+          
+          # List models
+          curl http://localhost:8000/v1/models
+          
+          # Chat completion
+          curl -X POST http://localhost:8000/v1/chat/completions \\
+            -H "Content-Type: application/json" \\
+            -d '{
+              "model": "${{ steps.meta.outputs.model_name }}",
+              "messages": [{"role": "user", "content": "Hello!"}],
+              "max_tokens": 100
+            }'
+          \`\`\`
+          EOF
+          
+      - name: Upload deployment example
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-example-${{ steps.meta.outputs.sanitized_model }}
+          path: deployment-example.md

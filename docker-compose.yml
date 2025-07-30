@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  vllm-glm45:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODEL_NAME: ${MODEL_NAME:-zai-org/GLM-4.5-FP8}
+    container_name: vllm-glm45-server
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - MODEL_NAME=${MODEL_NAME:-zai-org/GLM-4.5-FP8}
+      - HF_HOME=/app/models
+      - TRANSFORMERS_CACHE=/app/models
+      - HF_DATASETS_CACHE=/app/models
+    volumes:
+      # Optional: Mount local model cache to persist downloads
+      - model-cache:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # Optional: Add a simple web interface for testing
+  vllm-ui:
+    image: nginx:alpine
+    container_name: vllm-ui
+    ports:
+      - "${UI_PORT:-8080}:80"
+    volumes:
+      - ./ui:/usr/share/nginx/html:ro
+    depends_on:
+      - vllm-glm45
+    profiles:
+      - ui
+    restart: unless-stopped
+
+volumes:
+  model-cache:
+    driver: local
+
+networks:
+  default:
+    name: vllm-network
