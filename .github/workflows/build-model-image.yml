@@ -30,6 +30,9 @@ jobs:
     # Alternative: Use specific runner labels if you have multiple runners
     # runs-on: [self-hosted, linux, x64, docker]
     
+    # Set timeout to 24 hours (1440 minutes)
+    timeout-minutes: 1440
+    
     permissions:
       contents: read
       packages: write
